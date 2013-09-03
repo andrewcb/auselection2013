@@ -119,6 +119,42 @@
         	padding: 6px;
         }
 
+        #partyselector {
+            position: absolute;
+            left: 50px;
+            top: 100px;
+            right: 50px;
+            height: 370px;
+            background-color: #fcfcf0;
+            border: 1px solid #ccc;
+            padding: 2px 8px 2px 8px;
+            box-shadow: 2px 2px 4px #777;
+            color: #555;
+        }
+        #partyselector h2 {
+            font-size: 20px;
+        }
+
+        #partyselection {
+            bottom: 50px;
+            overflow: scroll;
+            border: 1px solid #ccc;
+            height: 230px;
+            clear: both;
+        }
+        
+        
+        #partyselection div {
+            width: 50%;
+            float: left;
+            font-size: 11px;
+        }
+        
+        #partyselector .button {
+           position: absolute;
+           bottom: 20px;
+           right: 20px;
+        }
         #footer {
         	padding: 8px;
         	font-family: futura, helvetica, arial, sans-serif;
@@ -126,6 +162,26 @@
         	text-shadow: 1px 1px 0px #f0f0f0;
         }
         a { color: #c50;  }
+
+        #showpartyselectorbtn {
+            font-size: 9px;
+            color: #c50;
+            cursor: pointer;
+        }
+
+        .button {
+            cursor:pointer;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            padding-left: 20px;
+            padding-right: 20px;
+            font-size: 20px;
+            background-color: #c73;
+            width: auto;
+            color: #222;
+            border: 1px solid #222;
+            text-shadow: none;
+        }
     </style>
     <script src="http://d3js.org/d3.v3.min.js"></script>
 </head>
@@ -149,7 +205,8 @@
             <span id="wa">WA</span>
         </div>
 	  	<div id="givenpane">
-		  	<h3><b>Preferences given</b> to other parties</h3>
+		  	<h3><b>Preferences given</b> to: 
+                <select id="prefmode"><option selected>all other parties</option><option>selected parties</option></h3></select>&nbsp;<span id="showpartyselectorbtn" style="visibility: hidden">edit</span>
 		  	<svg id="pg" width="500" height="120">
 		  	</svg>
 		  	<div class="emptymsg" style="visibility: hidden"><span id="givenname">This group</span> did not give any preferences.</div>
@@ -168,6 +225,12 @@
 	  	<p>Click on a circle to see whom that party gives preferences to and receives preferences from.</p>
 
 	  </div>
+      <div id="partyselector" style="visibility: hidden;">
+        <h2>Select parties to see preference ranking for</h2>
+        <div id="partyselection">
+        </div>
+        <span id="partyselectorok" class="button">OK</div>
+      </div>
 
 	</div>
   <div id="footer">
@@ -182,6 +245,10 @@
      <script>
     var avgpref = null;
     var party_colours = {};
+
+    var show_all_prefs = true;
+    var displayed_parties = d3.set(["Australian Labor Party", "Liberal Party", "National Party", "Greens", "One Nation", "Family First", "Australia First"])
+    var selected_party = null;
 
     var abbrev = {
       "Christian Democratic Party": "CDP", "Rise Up Australia": "RsUp",  "Bank Reform Party": "BkRf", 
@@ -243,10 +310,23 @@
      // the current preference relationship: party name -> pref
      var curgiven = {}, currcvd = {};
 
+     /* Update the charts with the currently selected party and the displayed parties */
+     function updatePrefCharts() {
+        var given = avgpref.given[selected_party], rcvd = avgpref.received[selected_party];
+
+        if(!show_all_prefs) {
+            given = given.filter(function(v){return displayed_parties.has(v.name)})
+            rcvd = rcvd.filter(function(v){return displayed_parties.has(v.name)})
+        }
+        prefCharts.given.updateData(given);
+        prefCharts.received.updateData(rcvd);
+     }
+
      /* called when a party has been selected */
      function selected(name) {
         var i;
         if(!avgpref) return;
+        selected_party = name;
         var given = avgpref.given[name], rcvd = avgpref.received[name], states = avgpref.states[name];
         d3.select('#instructions').style('visibility', 'hidden');
         d3.select('#info').style('visibility', 'visible');
@@ -271,8 +351,7 @@
         if(given) { given.forEach(function(d) {curgiven[d.name] = d.pref;}); }
         if(rcvd) { rcvd.forEach(function(d) {currcvd[d.name] = d.pref;}); }
 
-        prefCharts.given.updateData(avgpref.given[name]);
-        prefCharts.received.updateData(avgpref.received[name]);
+        updatePrefCharts();
 
         d3.select('#buddies').html(getbuddies(name,4).map(function(n){return '<span style="color:'+partyColour(n)+'">'+n+'</span>';}).join(", "));
         d3.select('#nemeses').html(getfoes(name,4).map(function(n){return '<span style="color:'+partyColour(n)+'">'+n+'</span>';}).join(", "));
@@ -401,6 +480,9 @@
     	var data = dataIn ? dataIn.map(function(v){return v;}) : [];
      	var provided = d3.set(data.map(function(v){return v.name;}));
 		var y_extent = d3.extent(data, function(d){return d.pref;});
+        var x_scale = d3.scale.linear() 
+                    .range([0,500])
+                    .domain([0,dataIn.length]);
 		var self = this;
      	for(var i=0; i<this.parties.length; i++) {
      		if(!provided.has(this.parties[i].name)) {
@@ -413,8 +495,10 @@
      	this.svg.selectAll("rect")
      		.data(data, function(d){return d.name;})
      	.transition().duration(300)
-     		.attr("x", function(d, i) { return self.x_scale(i) - .5; })
+     		.attr("x", function(d, i) { return x_scale(i) - .5; })
      		.attr("y", function(d) { return (d.pref===999)? 120 :120 - self.y_scale((y_extent[1]-d.pref)/y_extent[1]) - .5; })
+            .attr("width", (500/dataIn.length)-2)
+
      		.attr("height", function(d) { return (d.pref===999)? 0 : self.y_scale((y_extent[1]-d.pref)/y_extent[1]); })
      		.style('fill', function(d) { return partyColour(d.name); })
      		.attr("title", function(d) { return fmt_pref(d.pref) + " " + d.name; });
@@ -459,10 +543,42 @@
         avgpref.given = decodeprefdict(data.g, data.p);
         avgpref.received = decodeprefdict(data.r, data.p);
         avgpref.states = decodestates(data.s, data.p);
+        // populate the party selector
+        var item = d3.select("#partyselection").selectAll("div").data(data.p).enter()
+            .append("div");
+        item.append("input")
+            .attr("type","checkbox")
+            .attr("id", function(d){return "psel_"+abbrev[d];})
+            //.attr("checked", function(d){return displayed_parties.has(d)?"checked":"0";})
+            .property("checked", function(d){return displayed_parties.has(d);})
+            .on("change", function(d) { 
+                if(this.checked) {
+                    displayed_parties.add(d);
+                } else {
+                    displayed_parties.remove(d);
+                }
+            });
+        item.append("label")
+            .attr("for", function(d){return "psel_"+d;})
+            .text(function(d){return d;});
     	d3.select('#graph').style('visibility', 'visible');
     	// fill given/received charts with initial data
     	prefCharts.given = new PrefChartObject('svg#pg', d3.keys(avgpref.received));
     	prefCharts.received = new PrefChartObject('svg#pr', d3.keys(avgpref.given));
+        d3.select('#prefmode').on("change", function(d){
+            d3.select('#showpartyselectorbtn').style('visibility', this.selectedIndex===1?'visible':'hidden');
+            show_all_prefs = (this.selectedIndex == 0);
+            updatePrefCharts();
+        });
+        d3.select('#showpartyselectorbtn')
+            .on('click', function(){
+                d3.select('#partyselector').style('visibility', 'visible');
+            });
+        d3.select('#partyselectorok').
+            on('click', function(){
+                d3.select('#partyselector').style('visibility', 'hidden');
+                updatePrefCharts();
+            });
     });
     d3.json("fdg.json", draw);
   </script>
